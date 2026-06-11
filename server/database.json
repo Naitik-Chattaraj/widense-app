@@ -1,0 +1,19 @@
+{
+  "users": [
+    {
+      "id": "_9ny5cij26",
+      "name": "Naitik-test",
+      "email": "naitikchattaraj77@gmail.com",
+      "passwordHash": "$2a$10$9sV9Yb819VFoyxUKdFKlzuvBRXiPcEsgAMls/y/N8wIPEzidqAT1i",
+      "verified": false,
+      "createdAt": "2026-05-18T12:09:05.818Z"
+    }
+  ],
+  "otps": [
+    {
+      "email": "naitikchattaraj77@gmail.com",
+      "code": "286615",
+      "expiresAt": "2026-05-18T12:20:18.006Z"
+    }
+  ]
+}

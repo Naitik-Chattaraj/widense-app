@@ -234,38 +234,44 @@ export const supabaseService = {
 
       console.log(`[SupabaseService] Uploading to: ${uploadUrl} | file: ${fileName} | mime: ${mimeType}`);
 
-      const formData = new FormData();
-      
+      let data;
       if (Platform.OS !== 'web') {
-        // React Native FormData: keep the full URI as-is (both Android and iOS use file:// URIs)
-        formData.append('file', {
-          uri: uri,
-          name: fileName,
-          type: mimeType
-        } as any);
+        const uploadRes = await FileSystem.uploadAsync(uploadUrl, uri, {
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          fieldName: 'file',
+          mimeType: mimeType,
+          headers: {
+            'Accept': 'application/json',
+          }
+        });
+
+        if (uploadRes.status < 200 || uploadRes.status >= 300) {
+          console.error('[SupabaseService] uploadFieldMedia native server error:', uploadRes.status, uploadRes.body);
+          return null;
+        }
+        data = JSON.parse(uploadRes.body);
       } else {
-        // Web: for data URIs (watermarked canvas output) convert to blob; for file:// fetch directly
+        const formData = new FormData();
         const response = await fetch(uri);
         const blob = await response.blob();
         formData.append('file', blob, fileName);
+
+        const uploadRes = await fetch(uploadUrl, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'Accept': 'application/json',
+          },
+        });
+        
+        if (!uploadRes.ok) {
+          const errorData = await uploadRes.text();
+          console.error('[SupabaseService] uploadFieldMedia web server error:', uploadRes.status, errorData);
+          return null;
+        }
+        data = await uploadRes.json();
       }
-      
-      const uploadRes = await fetch(uploadUrl, {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Accept': 'application/json',
-          // Do NOT set Content-Type manually — fetch sets it with the correct multipart boundary
-        },
-      });
-      
-      if (!uploadRes.ok) {
-        const errorData = await uploadRes.text();
-        console.error('[SupabaseService] uploadFieldMedia server error:', uploadRes.status, errorData);
-        return null;
-      }
-      
-      const data = await uploadRes.json();
       console.log('[SupabaseService] Upload successful:', data.directUrl || data.webViewLink);
       return data.directUrl || data.webViewLink;
 

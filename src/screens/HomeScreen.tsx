@@ -467,8 +467,8 @@ export default function HomeScreen({ user, navigation }: HomeScreenProps) {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: type === 'image' 
-        ? ['images'] // using string array since MediaType enum might not be strongly typed on all older expo versions, wait, the warning said "Use ImagePicker.MediaType or an array of ImagePicker.MediaType"
-        : ['videos'],
+        ? ImagePicker.MediaTypeOptions.Images 
+        : ImagePicker.MediaTypeOptions.Videos,
       allowsEditing: false, // Set to false to avoid crash on some Android devices with large files
       quality: 0.5, // Lower quality slightly to prevent memory issues and save bandwidth
     });
@@ -549,7 +549,6 @@ export default function HomeScreen({ user, navigation }: HomeScreenProps) {
       }
 
       // 2. Save file locally in a folder named 'widense' with pattern: [ProjectName]_[Index].jpg / .mp4
-      /* Temporarily disabled because MediaLibrary hangs indefinitely in Expo Go on Android 13+
       try {
         const { status: mediaStatus } = await MediaLibrary.requestPermissionsAsync();
         if (mediaStatus === 'granted') {
@@ -583,11 +582,14 @@ export default function HomeScreen({ user, navigation }: HomeScreenProps) {
             await MediaLibrary.createAlbumAsync('widense', asset, false);
           }
           console.log('[Media] Saved locally to Gallery Album "widense" as:', newFileName);
+
+          // We use the newLocalUri for the upload so the watermarked image is used (or just local image)
+          // Wait, uploadUri could be the web watermark one, but we are copying localUri. Let's just use newLocalUri
+          uploadUri = newLocalUri;
         }
       } catch (saveErr) {
         console.warn('Failed to save media to local storage:', saveErr);
       }
-      */
 
       // Upload media to Supabase storage so the admin can view/download it
       const publicUrl = await supabaseService.uploadFieldMedia(user.id, activeProject.id, uploadUri);

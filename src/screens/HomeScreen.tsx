@@ -458,163 +458,167 @@ export default function HomeScreen({ user, navigation }: HomeScreenProps) {
   // 6. Camera click with stamp drawing
   const captureMedia = async (type: 'image' | 'video') => {
     if (!activeProject) return;
-    
-    const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
-    if (cameraStatus !== 'granted') {
-      Alert.alert('Permission Denied', 'Please grant camera permissions to capture reports.');
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: type === 'image' 
-        ? ImagePicker.MediaTypeOptions.Images 
-        : ImagePicker.MediaTypeOptions.Videos,
-      allowsEditing: false, // Set to false to avoid crash on some Android devices with large files
-      quality: 0.5, // Lower quality slightly to prevent memory issues and save bandwidth
-    });
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const localUri = result.assets[0].uri;
-      
-      // 1. Watermark image if we are on Web (pure HTML5 canvas) or Native (via hidden WebView)
-      let uploadUri = localUri;
-      if (type === 'image') {
-        if (Platform.OS === 'web') {
-          try {
-            uploadUri = await new Promise<string>((resolve) => {
-              const img = new window.Image();
-              img.crossOrigin = 'anonymous';
-              img.src = localUri;
-              img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                  ctx.drawImage(img, 0, 0);
-                  
-                  // Draw watermark banner
-                  const fontSize = Math.max(16, Math.floor(img.width / 40));
-                  ctx.font = `bold ${fontSize}px sans-serif`;
-                  
-                  const text = `${activeProject.name} - ${new Date().toLocaleString()} - Widense`;
-                  const textWidth = ctx.measureText(text).width;
-                  
-                  ctx.fillStyle = 'rgba(27, 20, 100, 0.6)'; // Indigo translucent
-                  ctx.fillRect(15, img.height - fontSize - 25, textWidth + 30, fontSize + 15);
-                  
-                  ctx.fillStyle = '#FFFFFF';
-                  ctx.fillText(text, 30, img.height - 20);
-                }
-                resolve(canvas.toDataURL('image/jpeg', 0.85));
-              };
-              img.onerror = () => resolve(localUri);
-            });
-          } catch (webWatermarkErr) {
-            console.warn('Web watermarking failed:', webWatermarkErr);
-          }
-        } else {
-          // Native Mobile watermarking via hidden WebView canvas
-          // Temporarily bypassed due to Out Of Memory crashes on Android when reading large camera images as Base64.
-          uploadUri = localUri;
-          
-          /*
-          try {
-            const base64 = await FileSystem.readAsStringAsync(localUri, { encoding: FileSystem.EncodingType.Base64 });
-            const mimeType = 'image/jpeg';
-            
-            const watermarkedBase64 = await new Promise<string>((resolve) => {
-              watermarkResolveRef.current = resolve;
-              const js = `
-                if (typeof window.watermarkImage === 'function') {
-                  window.watermarkImage("data:${mimeType};base64,${base64}", "${activeProject.name.replace(/"/g, '\\"')}");
-                }
-                true;
-              `;
-              watermarkWebviewRef.current?.injectJavaScript(js);
-              // Fallback timeout in case webview fails or is slow
-              setTimeout(() => resolve(`data:${mimeType};base64,${base64}`), 6000);
-            });
-            
-            // Save the watermarked image to a temporary file
-            const tempFileUri = `${FileSystem.cacheDirectory}watermarked_${Date.now()}.jpg`;
-            const base64Data = watermarkedBase64.split(',')[1];
-            await FileSystem.writeAsStringAsync(tempFileUri, base64Data, { encoding: FileSystem.EncodingType.Base64 });
-            uploadUri = tempFileUri;
-          } catch (nativeWatermarkErr) {
-            console.warn('Native watermarking failed:', nativeWatermarkErr);
-          }
-          */
-        }
-      }
-
-      // 2. Save file locally in a folder named 'widense' with pattern: [ProjectName]_[Index].jpg / .mp4
-      try {
-        const { status: mediaStatus } = await MediaLibrary.requestPermissionsAsync();
-        if (mediaStatus === 'granted') {
-          const projectCleanName = activeProject.name.replace(/[^a-zA-Z0-9]/g, '_');
-          const countKey = `media_count_${activeProject.id}`;
-          const currentCount = await AsyncStorage.getItem(countKey);
-          const nextCount = currentCount ? parseInt(currentCount) + 1 : 1;
-          await AsyncStorage.setItem(countKey, nextCount.toString());
-          
-          const extension = type === 'video' ? 'mp4' : 'jpg';
-          const newFileName = `${projectCleanName}_${nextCount}.${extension}`;
-          
-          // Ensure directory exists in cache/local filesystem before saving to library
-          const dirUri = `${FileSystem.cacheDirectory}widense/`;
-          const dirInfo = await FileSystem.getInfoAsync(dirUri);
-          if (!dirInfo.exists) {
-            await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
-          }
-          
-          const newLocalUri = `${dirUri}${newFileName}`;
-          await FileSystem.copyAsync({
-            from: localUri,
-            to: newLocalUri
-          });
-          
-          const asset = await MediaLibrary.createAssetAsync(newLocalUri);
-          const album = await MediaLibrary.getAlbumAsync('widense');
-          if (album) {
-            await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
-          } else {
-            await MediaLibrary.createAlbumAsync('widense', asset, false);
-          }
-          console.log('[Media] Saved locally to Gallery Album "widense" as:', newFileName);
-
-          // We use the newLocalUri for the upload so the watermarked image is used (or just local image)
-          // Wait, uploadUri could be the web watermark one, but we are copying localUri. Let's just use newLocalUri
-          uploadUri = newLocalUri;
-        }
-      } catch (saveErr) {
-        console.warn('Failed to save media to local storage:', saveErr);
-      }
-
-      // Upload media to Supabase storage so the admin can view/download it
-      const publicUrl = await supabaseService.uploadFieldMedia(user.id, activeProject.id, uploadUri);
-      
-      if (!publicUrl) {
-        Alert.alert('Upload Failed', 'Failed to upload media to server.');
+    try {
+      const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
+      if (cameraStatus !== 'granted') {
+        Alert.alert('Permission Denied', 'Please grant camera permissions to capture reports.');
         return;
       }
 
-      // Generate stamped photo in Supabase (saving the public URL instead of localUri)
-      const capture = await supabaseService.addMediaCapture({
-        project_id: activeProject.id,
-        user_id: user.id,
-        media_type: type,
-        file_url: publicUrl
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: type === 'image' 
+          ? ImagePicker.MediaTypeOptions.Images 
+          : ImagePicker.MediaTypeOptions.Videos,
+        allowsEditing: false, // Set to false to avoid crash on some Android devices with large files
+        quality: 0.5, // Lower quality slightly to prevent memory issues and save bandwidth
       });
 
-      if (capture) {
-        Alert.alert(
-          'Report Stamped & Uploaded!',
-          `Report captured and successfully sent to the Admin dashboard!`
-        );
-      } else {
-        Alert.alert('Error', 'Failed to save media record.');
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const localUri = result.assets[0].uri;
+        
+        // 1. Watermark image if we are on Web (pure HTML5 canvas) or Native (via hidden WebView)
+        let uploadUri = localUri;
+        if (type === 'image') {
+          if (Platform.OS === 'web') {
+            try {
+              uploadUri = await new Promise<string>((resolve) => {
+                const img = new window.Image();
+                img.crossOrigin = 'anonymous';
+                img.src = localUri;
+                img.onload = () => {
+                  const canvas = document.createElement('canvas');
+                  canvas.width = img.width;
+                  canvas.height = img.height;
+                  const ctx = canvas.getContext('2d');
+                  if (ctx) {
+                    ctx.drawImage(img, 0, 0);
+                    
+                    // Draw watermark banner
+                    const fontSize = Math.max(16, Math.floor(img.width / 40));
+                    ctx.font = `bold ${fontSize}px sans-serif`;
+                    
+                    const text = `${activeProject.name} - ${new Date().toLocaleString()} - Widense`;
+                    const textWidth = ctx.measureText(text).width;
+                    
+                    ctx.fillStyle = 'rgba(27, 20, 100, 0.6)'; // Indigo translucent
+                    ctx.fillRect(15, img.height - fontSize - 25, textWidth + 30, fontSize + 15);
+                    
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillText(text, 30, img.height - 20);
+                  }
+                  resolve(canvas.toDataURL('image/jpeg', 0.85));
+                };
+                img.onerror = () => resolve(localUri);
+              });
+            } catch (webWatermarkErr) {
+              console.warn('Web watermarking failed:', webWatermarkErr);
+            }
+          } else {
+            // Native Mobile watermarking via hidden WebView canvas
+            // Temporarily bypassed due to Out Of Memory crashes on Android when reading large camera images as Base64.
+            uploadUri = localUri;
+            
+            /*
+            try {
+              const base64 = await FileSystem.readAsStringAsync(localUri, { encoding: FileSystem.EncodingType.Base64 });
+              const mimeType = 'image/jpeg';
+              
+              const watermarkedBase64 = await new Promise<string>((resolve) => {
+                watermarkResolveRef.current = resolve;
+                const js = `
+                  if (typeof window.watermarkImage === 'function') {
+                    window.watermarkImage("data:${mimeType};base64,${base64}", "${activeProject.name.replace(/"/g, '\\"')}");
+                  }
+                  true;
+                `;
+                watermarkWebviewRef.current?.injectJavaScript(js);
+                // Fallback timeout in case webview fails or is slow
+                setTimeout(() => resolve(`data:${mimeType};base64,${base64}`), 6000);
+              });
+              
+              // Save the watermarked image to a temporary file
+              const tempFileUri = `${FileSystem.cacheDirectory}watermarked_${Date.now()}.jpg`;
+              const base64Data = watermarkedBase64.split(',')[1];
+              await FileSystem.writeAsStringAsync(tempFileUri, base64Data, { encoding: FileSystem.EncodingType.Base64 });
+              uploadUri = tempFileUri;
+            } catch (nativeWatermarkErr) {
+              console.warn('Native watermarking failed:', nativeWatermarkErr);
+            }
+            */
+          }
+        }
+
+        // 2. Save file locally in a folder named 'widense' with pattern: [ProjectName]_[Index].jpg / .mp4
+        try {
+          const { status: mediaStatus } = await MediaLibrary.requestPermissionsAsync();
+          if (mediaStatus === 'granted') {
+            const projectCleanName = activeProject.name.replace(/[^a-zA-Z0-9]/g, '_');
+            const countKey = `media_count_${activeProject.id}`;
+            const currentCount = await AsyncStorage.getItem(countKey);
+            const nextCount = currentCount ? parseInt(currentCount) + 1 : 1;
+            await AsyncStorage.setItem(countKey, nextCount.toString());
+            
+            const extension = type === 'video' ? 'mp4' : 'jpg';
+            const newFileName = `${projectCleanName}_${nextCount}.${extension}`;
+            
+            // Ensure directory exists in cache/local filesystem before saving to library
+            const dirUri = `${FileSystem.cacheDirectory}widense/`;
+            const dirInfo = await FileSystem.getInfoAsync(dirUri);
+            if (!dirInfo.exists) {
+              await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
+            }
+            
+            const newLocalUri = `${dirUri}${newFileName}`;
+            await FileSystem.copyAsync({
+              from: localUri,
+              to: newLocalUri
+            });
+            
+            const asset = await MediaLibrary.createAssetAsync(newLocalUri);
+            const album = await MediaLibrary.getAlbumAsync('widense');
+            if (album) {
+              await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+            } else {
+              await MediaLibrary.createAlbumAsync('widense', asset, false);
+            }
+            console.log('[Media] Saved locally to Gallery Album "widense" as:', newFileName);
+
+            // We use the newLocalUri for the upload so the watermarked image is used (or just local image)
+            // Wait, uploadUri could be the web watermark one, but we are copying localUri. Let's just use newLocalUri
+            uploadUri = newLocalUri;
+          }
+        } catch (saveErr) {
+          console.warn('Failed to save media to local storage:', saveErr);
+        }
+
+        // Upload media to Supabase storage so the admin can view/download it
+        const publicUrl = await supabaseService.uploadFieldMedia(user.id, activeProject.id, uploadUri);
+        
+        if (!publicUrl) {
+          Alert.alert('Upload Failed', 'Failed to upload media to server.');
+          return;
+        }
+
+        // Generate stamped photo in Supabase (saving the public URL instead of localUri)
+        const capture = await supabaseService.addMediaCapture({
+          project_id: activeProject.id,
+          user_id: user.id,
+          media_type: type,
+          file_url: publicUrl
+        });
+
+        if (capture) {
+          Alert.alert(
+            'Report Stamped & Uploaded!',
+            `Report captured and successfully sent to the Admin dashboard!`
+          );
+        } else {
+          Alert.alert('Error', 'Failed to save media record.');
+        }
       }
+    } catch (err: any) {
+      console.error('[Media] captureMedia error:', err);
+      Alert.alert('Capture Error', String(err?.message || err?.toString?.() || err));
     }
   };
 

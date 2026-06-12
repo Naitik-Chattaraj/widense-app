@@ -248,7 +248,7 @@ export const supabaseService = {
 
         if (uploadRes.status < 200 || uploadRes.status >= 300) {
           console.error('[SupabaseService] uploadFieldMedia native server error:', uploadRes.status, uploadRes.body);
-          return null;
+          throw new Error(`Native server error: ${uploadRes.status} - ${uploadRes.body}`);
         }
         data = JSON.parse(uploadRes.body);
       } else {
@@ -268,7 +268,7 @@ export const supabaseService = {
         if (!uploadRes.ok) {
           const errorData = await uploadRes.text();
           console.error('[SupabaseService] uploadFieldMedia web server error:', uploadRes.status, errorData);
-          return null;
+          throw new Error(`Web server error: ${uploadRes.status} - ${errorData}`);
         }
         data = await uploadRes.json();
       }
@@ -277,7 +277,7 @@ export const supabaseService = {
 
     } catch (err) {
       console.error('[SupabaseService] uploadFieldMedia exception:', err);
-      return null;
+      throw err;
     }
   },
 

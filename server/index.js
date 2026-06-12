@@ -14,37 +14,21 @@ const { google } = require('googleapis');
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Google Drive configuration
-const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
 let driveClient = null;
 
 try {
-  let authClient;
+  const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+  const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+  const REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN;
 
-  // Priority 1: Use GOOGLE_SERVICE_ACCOUNT_JSON environment variable (for Railway/cloud deployments)
-  if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    const serviceAccountKey = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-    authClient = new google.auth.GoogleAuth({
-      credentials: serviceAccountKey,
-      scopes: SCOPES,
-    });
-    console.log('[Google Drive] Initialized Drive client from GOOGLE_SERVICE_ACCOUNT_JSON env variable.');
-  } else {
-    // Priority 2: Fall back to credentials.json file (for local development)
-    const credentialsPath = path.join(__dirname, 'credentials.json');
-    if (fs.existsSync(credentialsPath)) {
-      authClient = new google.auth.GoogleAuth({
-        keyFile: credentialsPath,
-        scopes: SCOPES,
-      });
-      console.log('[Google Drive] Initialized Drive client from credentials.json file.');
-    } else {
-      console.warn('[Google Drive] No credentials found. Set GOOGLE_SERVICE_ACCOUNT_JSON env var or add credentials.json. Drive uploads will fail.');
-    }
-  }
-
-  if (authClient) {
+  if (CLIENT_ID && CLIENT_SECRET && REFRESH_TOKEN) {
+    const authClient = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET);
+    authClient.setCredentials({ refresh_token: REFRESH_TOKEN });
+    
     driveClient = google.drive({ version: 'v3', auth: authClient });
-    console.log('[Google Drive] Drive API client ready.');
+    console.log('[Google Drive] Drive API client ready using OAuth2 refresh token.');
+  } else {
+    console.warn('[Google Drive] OAuth2 credentials missing. Ensure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN are in .env. Drive uploads will fail.');
   }
 } catch (err) {
   console.error('[Google Drive ERROR] Failed to initialize Drive client:', err.message);
@@ -84,7 +68,7 @@ async function initTransporter() {
       console.log(`- Username: ${testAccount.user}`);
       console.log(`- Password: ${testAccount.pass}`);
       console.log('--------------------------------------------------');
-      
+
       transporter = nodemailer.createTransport({
         host: 'smtp.ethereal.email',
         port: 587,
@@ -146,7 +130,7 @@ async function sendOTPEmail(email, otp) {
     try {
       const info = await transporter.sendMail(mailOptions);
       console.log(`[SMTP] Email successfully sent. Message ID: ${info.messageId}`);
-      
+
       const previewUrl = nodemailer.getTestMessageUrl(info);
       if (previewUrl) {
         console.log(`🔗 Ethereal Email Preview Link: ${previewUrl}`);
@@ -179,7 +163,7 @@ app.post('/api/auth/register', async (req, res) => {
       const passwordHash = await bcrypt.hash(password, salt);
       existingUser.name = name;
       existingUser.passwordHash = passwordHash;
-      
+
       const otp = generateOTP();
       db.saveOTP(email, otp);
       await sendOTPEmail(email, otp);
@@ -535,7 +519,7 @@ app.post('/api/upload-media', upload.single('file'), async (req, res) => {
 
   } catch (error) {
     console.error('Google Drive upload error:', error);
-    return res.status(500).json({ error: 'Failed to upload file to Google Drive.' });
+    return res.status(500).json({ error: `Failed to upload file to Google Drive: ${error.message || error}` });
   }
 });
 
@@ -545,6 +529,6 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log(`🔒 Widense Auth Server running on http://localhost:${PORT}`);
   console.log(`⚡ Testing on mobile devices? Make sure to connect to http://YOUR_COMPUTER_IP:${PORT}`);
   console.log(`==================================================\n`);
-  
+
   await initTransporter();
 });

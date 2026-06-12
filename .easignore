@@ -1,0 +1,47 @@
+# .easignore - overrides .gitignore for EAS Build
+# We DO NOT ignore .env here so that EAS can upload it and bake the variables into the APK!
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# Server secrets — NEVER commit these
+server/.env
+server/credentials.json
+server/uploads/
+
+# Misc
+lockfile-diff.txt
